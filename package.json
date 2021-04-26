@@ -1,6 +1,6 @@
 {
-  "name": "post-bridge",
-  "version": "1.0.10",
+  "name": "@kaokei/post-bridge",
+  "version": "1.0.0",
   "description": "jsbridge for iframes or windows by window.postMessage",
   "scripts": {
     "tsc": "tsc -p tsconfig.app.json",
