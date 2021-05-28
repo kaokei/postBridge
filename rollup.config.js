@@ -1,204 +1,170 @@
-import { dirname } from 'path';
-import commonjs from '@rollup/plugin-commonjs';
-import resolve from '@rollup/plugin-node-resolve';
-import babel from '@rollup/plugin-babel';
-import replace from '@rollup/plugin-replace';
-import { terser } from 'rollup-plugin-terser';
-import pkg from './package.json';
+/* eslint-disable @typescript-eslint/no-var-requires */
+import path from 'path';
+import json from '@rollup/plugin-json';
 
-// `npm run build` -> `production` is true
-// `npm run dev` -> `production` is false
-const production = !process.env.ROLLUP_WATCH;
-const sourceMapFlag = false;
+let hasTSChecked = false;
+const pkg = require('./package.json');
+const name = 'post-bridge';
+const iifeName = 'PostBridge';
+const formats = [
+  'cjs',
+  'cjs.min',
+  'cjs.runtime',
+  'cjs.runtime.min',
+  'es',
+  'es.min',
+  'es.runtime',
+  'es.runtime.min',
+  'iife',
+  'iife.min',
+];
+// const formats = ['cjs', 'es'];
 
-let name = pkg.name;
-
-if (name.slice(0, 1) === '@') {
-  name = name.split('/')[1];
-  if (!name) {
-    throw new TypeError('pkg.name invalid');
+const packageConfigs = formats.map(format => {
+  if (format.includes('min')) {
+    // 压缩代码，并开启production模式
+    return createProductionConfig(format.split('.')[0]);
+  } else {
+    return createDevelopmentConfig(format);
   }
-}
-name = parseName(name);
+});
 
-const targetDir = dirname(pkg.main);
-const deps = pkg.dependencies;
-const peerDeps = pkg.peerDependencies;
+export default packageConfigs;
 
-const banner = `
-/**
- * ${pkg.name}
- * ${pkg.description}
- *
- * @version ${pkg.version}
- * @author ${pkg.author}
- * @license ${pkg.license}
- * @link ${pkg.homepage}
- */
-`.trimLeft();
-const uglifyOpts = {
-  mangle: true,
-  compress: {
-    unused: false,
-    sequences: true,
-    dead_code: true,
-    conditionals: true,
-    booleans: true,
-    if_return: true,
-    join_vars: true,
-    drop_console: false,
-    drop_debugger: false,
-    typeofs: false,
-  },
-  output: {
-    // preamble: banner,
-  },
-};
+function createConfig(format, output, plugins = []) {
+  output.exports = 'auto';
+  output.sourcemap = true;
+  output.externalLiveBindings = false;
 
-const globals = {
-  'rxjs/operators': 'rxjs.operators',
-  'rxjs/websocket': 'rxjs.websocket',
-};
-let external = ['rxjs', 'rxjs/operators', 'rxjs/websocket', 'rxjs/ajax'];
-const nodeModule = ['fs', 'path', 'util', 'os'];
-
-if (deps && Object.keys(deps).length) {
-  for (const depName of Object.keys(deps)) {
-    external.push(depName);
+  const isProductionBuild = /\.min\.js$/.test(output.file);
+  const isGlobalBuild = /iife/.test(format);
+  const isESBuild = /es/.test(format);
+  if (isGlobalBuild) {
+    output.name = iifeName;
   }
-}
-if (peerDeps && Object.keys(peerDeps).length) {
-  for (const depName of Object.keys(peerDeps)) {
-    external.push(depName);
-  }
-}
-external = [...new Set(external)];
 
-const config = [];
+  let entryFile = `src/index.ts`;
 
-if (pkg.main) {
-  config.push(
-    // CommonJS (for Node) and ES module (for bundlers) build.
+  // 这样写意味着不会打包任何npm包了
+  let external = [
+    ...Object.keys(pkg.dependencies || {}),
+    ...Object.keys(pkg.devDependencies || {}),
+    ...Object.keys(pkg.peerDependencies || {}),
+    ...['path', 'url', 'stream'],
+  ];
+
+  // 暂时没有用上globals
+  output.globals = {
+    postcss: 'postcss',
+    jquery: '$',
+  };
+
+  const nodePlugins =
+    format === 'cjs'
+      ? [
+          require('@rollup/plugin-commonjs')({
+            sourceMap: false,
+          }),
+          require('@rollup/plugin-node-resolve').nodeResolve(),
+        ]
+      : [
+          require('@rollup/plugin-commonjs')({
+            sourceMap: false,
+          }),
+          require('rollup-plugin-polyfill-node')(),
+          require('@rollup/plugin-node-resolve').nodeResolve(),
+        ];
+
+  return {
+    input: path.resolve(__dirname, entryFile),
+    external,
+    output,
+    plugins: [
+      json({
+        namedExports: false,
+      }),
+      createTypescriptPlugin(),
+      createReplacePlugin(isProductionBuild),
+      ...nodePlugins,
+      createBabelPlugin(isESBuild),
+      ...plugins,
+    ],
+    onwarn: (msg, warn) => {
+      if (!/Circular/.test(msg)) {
+        warn(msg);
+      }
+    },
+    treeshake: {
+      moduleSideEffects: false,
+    },
+  };
+}
+
+function createProductionConfig(format) {
+  const { terser } = require('rollup-plugin-terser');
+  return createConfig(
+    format,
     {
-      external: external.concat(nodeModule),
-      input: pkg.module,
-      plugins: [
-        replace({ __DEV__: !production, preventAssignment: true }),
-        babel({ babelHelpers: 'bundled' }),
-      ],
-      output: [
-        {
-          file: pkg.main,
-          banner,
-          format: 'cjs',
-          globals,
-          sourcemap: sourceMapFlag,
+      file: path.resolve(__dirname, `dist/${name}.${format}.min.js`),
+      format: format,
+    },
+    [
+      terser({
+        module: /^esm/.test(format),
+        compress: {
+          ecma: 2015,
+          pure_getters: true,
         },
-      ],
-    }
+        safari10: true,
+      }),
+    ]
   );
 }
 
-if (pkg.es2015) {
-  config[0].output.push({
-    banner,
-    format: 'es',
-    file: pkg.es2015,
-    sourcemap: sourceMapFlag,
+function createDevelopmentConfig(format) {
+  return createConfig(format, {
+    file: path.resolve(__dirname, `dist/${name}.${format}.js`),
+    format: format,
   });
 }
 
-if (production && pkg.es2015) {
-  config.push(
-    // esm minify
-    {
-      external: external.concat(nodeModule),
-      input: pkg.module,
-      plugins: [
-        replace({ __DEV__: !production, preventAssignment: true }),
-        babel({ babelHelpers: 'bundled' }),
-        terser(uglifyOpts),
-      ],
-      output: {
-        banner,
-        file: parseName(pkg.es2015) + '.min.js',
-        format: 'es',
-        sourcemap: sourceMapFlag,
+function createReplacePlugin(isProd = true) {
+  const replace = require('@rollup/plugin-replace');
+  const replacements = {
+    __VERSION__: pkg.version,
+    __DEV__: !isProd,
+  };
+  return replace({
+    values: replacements,
+    preventAssignment: true,
+  });
+}
+
+function createBabelPlugin(esm = true) {
+  const { getBabelOutputPlugin } = require('@rollup/plugin-babel');
+  return getBabelOutputPlugin({
+    presets: [['@babel/preset-env', { modules: false }]],
+    plugins: [['@babel/plugin-transform-runtime', { useESModules: esm }]],
+  });
+}
+
+function createTypescriptPlugin() {
+  const hasTSChecked2 = hasTSChecked;
+  hasTSChecked = true;
+  const ts = require('rollup-plugin-typescript2');
+  const shouldEmitDeclarations = pkg.types && !hasTSChecked2;
+  const tsPlugin = ts({
+    check: !hasTSChecked2,
+    tsconfig: path.resolve(__dirname, 'tsconfig.json'),
+    cacheRoot: path.resolve(__dirname, 'node_modules/.rts2_cache'),
+    tsconfigOverride: {
+      compilerOptions: {
+        sourceMap: true,
+        declaration: shouldEmitDeclarations,
+        declarationMap: shouldEmitDeclarations,
       },
-    }
-  );
+      exclude: ['**/__tests__', 'typings'],
+    },
+  });
+  return tsPlugin;
 }
-
-if (pkg.browser) {
-  config.push(
-    // umd bundle min
-    {
-      external: nodeModule,
-      input: pkg.module,
-      plugins: [
-        replace({ __DEV__: !production, preventAssignment: true }),
-        resolve({
-          mainFields: ['browser', 'module', 'main'],
-        }),
-        commonjs(),
-        production && terser(uglifyOpts),
-      ],
-      output: {
-        amd: { id: name },
-        banner,
-        file: `${targetDir}/${name}.umd.min.js`,
-        format: 'umd',
-        globals,
-        name,
-        sourcemap: sourceMapFlag,
-      },
-    }
-  );
-}
-
-if (pkg.bin) {
-  const shebang = `#!/usr/bin/env node\n\n${banner}`;
-
-  for (const binPath of Object.values(pkg.bin)) {
-    if (!binPath) {
-      continue;
-    }
-    const binSrcPath =
-      binPath.includes('bin/') && !binPath.includes('dist/bin/')
-        ? binPath.replace('bin/', 'dist/bin/')
-        : binPath;
-
-    config.push({
-      external: external.concat(nodeModule),
-      input: binSrcPath,
-      plugins: [replace({ __DEV__: !production, preventAssignment: true })],
-      output: [
-        {
-          file: binPath,
-          banner: shebang,
-          format: 'cjs',
-          globals,
-        },
-      ],
-    });
-  }
-}
-
-// remove pkg.name extension if exists
-function parseName(name) {
-  if (typeof name === 'string' && name) {
-    const arr = name.split('.');
-    const len = arr.length;
-
-    if (len > 2) {
-      return arr.slice(0, -1).join('.');
-    } else if (len === 2 || len === 1) {
-      return arr[0];
-    }
-  } else {
-    throw new TypeError('name invalid');
-  }
-  return name;
-}
-
-export default config;
