@@ -3,8 +3,8 @@ import path from 'path';
 
 let hasTSChecked = false;
 const pkg = require('./package.json');
-const name = 'post-bridge';
-const iifeName = 'PostBridge123123';
+const name = 'index';
+const iifeName = 'PostBridge';
 const formats = [
   'cjs',
   'cjs.min',
@@ -17,7 +17,18 @@ const formats = [
   'iife',
   'iife.min',
 ];
-// const formats = ['iife'];
+
+const banner = `
+/**
+ * ${pkg.name}
+ * ${pkg.description}
+ *
+ * @version ${pkg.version}
+ * @author ${pkg.author}
+ * @license ${pkg.license}
+ * @link ${pkg.homepage}
+ */
+`.trimLeft();
 
 const packageConfigs = formats.map(format => createConfig(format));
 
@@ -26,18 +37,25 @@ export default packageConfigs;
 function createConfig(fileSuffix) {
   const format = fileSuffix.split('.')[0];
   const output = {
-    format: format,
+    banner,
+    format,
     file: path.resolve(__dirname, `dist/${name}.${fileSuffix}.js`),
     exports: 'auto',
     sourcemap: true,
     externalLiveBindings: false,
+    globals: {
+      // 暂时没有用上globals
+      postcss: 'postcss',
+      jquery: '$',
+      '@rollup/plugin-babel': 'helloWorldPluginBabel',
+    },
   };
 
+  const isRuntimeBuild = /runtime/.test(fileSuffix);
   const isProductionBuild = /\.min\.js$/.test(output.file);
   const isGlobalBuild = format === 'iife';
   const isESBuild = format === 'esm';
   const isCommonJSBuild = format === 'cjs';
-  const isRuntimeBuild = /runtime/.test(format);
 
   if (isGlobalBuild) {
     output.name = iifeName;
@@ -52,13 +70,6 @@ function createConfig(fileSuffix) {
     ...Object.keys(pkg.peerDependencies || {}),
     ...['path', 'url', 'stream', 'fs', 'os'],
   ];
-
-  // 暂时没有用上globals
-  output.globals = {
-    postcss: 'postcss',
-    jquery: '$',
-    '@rollup/plugin-babel': 'helloPluginBabel',
-  };
 
   const minifyPlugins = isProductionBuild ? [createMinifyPlugin(isESBuild)] : [];
 
@@ -143,6 +154,7 @@ function createNodePlugins(isCommonJSBuild) {
 }
 
 function createBabelPlugin(isESBuild, isRuntimeBuild, isGlobalBuild) {
+  console.log('isRuntimeBuild :>> ', isRuntimeBuild);
   const { getBabelOutputPlugin } = require('@rollup/plugin-babel');
   return isRuntimeBuild
     ? getBabelOutputPlugin({
