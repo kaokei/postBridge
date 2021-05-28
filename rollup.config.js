@@ -1,44 +1,44 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 import path from 'path';
-import json from '@rollup/plugin-json';
 
 let hasTSChecked = false;
 const pkg = require('./package.json');
 const name = 'post-bridge';
-const iifeName = 'PostBridge';
+const iifeName = 'PostBridge123123';
 const formats = [
   'cjs',
   'cjs.min',
   'cjs.runtime',
   'cjs.runtime.min',
-  'es',
-  'es.min',
-  'es.runtime',
-  'es.runtime.min',
+  'esm',
+  'esm.min',
+  'esm.runtime',
+  'esm.runtime.min',
   'iife',
   'iife.min',
 ];
-// const formats = ['cjs', 'es'];
+// const formats = ['iife'];
 
-const packageConfigs = formats.map(format => {
-  if (format.includes('min')) {
-    // 压缩代码，并开启production模式
-    return createProductionConfig(format.split('.')[0]);
-  } else {
-    return createDevelopmentConfig(format);
-  }
-});
+const packageConfigs = formats.map(format => createConfig(format));
 
 export default packageConfigs;
 
-function createConfig(format, output, plugins = []) {
-  output.exports = 'auto';
-  output.sourcemap = true;
-  output.externalLiveBindings = false;
+function createConfig(fileSuffix) {
+  const format = fileSuffix.split('.')[0];
+  const output = {
+    format: format,
+    file: path.resolve(__dirname, `dist/${name}.${fileSuffix}.js`),
+    exports: 'auto',
+    sourcemap: true,
+    externalLiveBindings: false,
+  };
 
   const isProductionBuild = /\.min\.js$/.test(output.file);
-  const isGlobalBuild = /iife/.test(format);
-  const isESBuild = /es/.test(format);
+  const isGlobalBuild = format === 'iife';
+  const isESBuild = format === 'esm';
+  const isCommonJSBuild = format === 'cjs';
+  const isRuntimeBuild = /runtime/.test(format);
+
   if (isGlobalBuild) {
     output.name = iifeName;
   }
@@ -50,44 +50,29 @@ function createConfig(format, output, plugins = []) {
     ...Object.keys(pkg.dependencies || {}),
     ...Object.keys(pkg.devDependencies || {}),
     ...Object.keys(pkg.peerDependencies || {}),
-    ...['path', 'url', 'stream'],
+    ...['path', 'url', 'stream', 'fs', 'os'],
   ];
 
   // 暂时没有用上globals
   output.globals = {
     postcss: 'postcss',
     jquery: '$',
+    '@rollup/plugin-babel': 'helloPluginBabel',
   };
 
-  const nodePlugins =
-    format === 'cjs'
-      ? [
-          require('@rollup/plugin-commonjs')({
-            sourceMap: false,
-          }),
-          require('@rollup/plugin-node-resolve').nodeResolve(),
-        ]
-      : [
-          require('@rollup/plugin-commonjs')({
-            sourceMap: false,
-          }),
-          require('rollup-plugin-polyfill-node')(),
-          require('@rollup/plugin-node-resolve').nodeResolve(),
-        ];
+  const minifyPlugins = isProductionBuild ? [createMinifyPlugin(isESBuild)] : [];
 
   return {
     input: path.resolve(__dirname, entryFile),
     external,
     output,
     plugins: [
-      json({
-        namedExports: false,
-      }),
+      createJsonPlugin(),
       createTypescriptPlugin(),
       createReplacePlugin(isProductionBuild),
-      ...nodePlugins,
-      createBabelPlugin(isESBuild),
-      ...plugins,
+      ...createNodePlugins(isCommonJSBuild),
+      createBabelPlugin(isESBuild, isRuntimeBuild, isGlobalBuild),
+      ...minifyPlugins,
     ],
     onwarn: (msg, warn) => {
       if (!/Circular/.test(msg)) {
@@ -100,51 +85,10 @@ function createConfig(format, output, plugins = []) {
   };
 }
 
-function createProductionConfig(format) {
-  const { terser } = require('rollup-plugin-terser');
-  return createConfig(
-    format,
-    {
-      file: path.resolve(__dirname, `dist/${name}.${format}.min.js`),
-      format: format,
-    },
-    [
-      terser({
-        module: /^esm/.test(format),
-        compress: {
-          ecma: 2015,
-          pure_getters: true,
-        },
-        safari10: true,
-      }),
-    ]
-  );
-}
-
-function createDevelopmentConfig(format) {
-  return createConfig(format, {
-    file: path.resolve(__dirname, `dist/${name}.${format}.js`),
-    format: format,
-  });
-}
-
-function createReplacePlugin(isProd = true) {
-  const replace = require('@rollup/plugin-replace');
-  const replacements = {
-    __VERSION__: pkg.version,
-    __DEV__: !isProd,
-  };
-  return replace({
-    values: replacements,
-    preventAssignment: true,
-  });
-}
-
-function createBabelPlugin(esm = true) {
-  const { getBabelOutputPlugin } = require('@rollup/plugin-babel');
-  return getBabelOutputPlugin({
-    presets: [['@babel/preset-env', { modules: false }]],
-    plugins: [['@babel/plugin-transform-runtime', { useESModules: esm }]],
+function createJsonPlugin() {
+  const json = require('@rollup/plugin-json');
+  return json({
+    namedExports: false,
   });
 }
 
@@ -167,4 +111,59 @@ function createTypescriptPlugin() {
     },
   });
   return tsPlugin;
+}
+
+function createReplacePlugin(isProductionBuild) {
+  const replace = require('@rollup/plugin-replace');
+  const replacements = {
+    __VERSION__: pkg.version,
+    __DEV__: !isProductionBuild,
+  };
+  return replace({
+    values: replacements,
+    preventAssignment: true,
+  });
+}
+
+function createNodePlugins(isCommonJSBuild) {
+  return isCommonJSBuild
+    ? [
+        require('@rollup/plugin-commonjs')({
+          sourceMap: false,
+        }),
+        require('@rollup/plugin-node-resolve').nodeResolve(),
+      ]
+    : [
+        require('@rollup/plugin-commonjs')({
+          sourceMap: false,
+        }),
+        require('rollup-plugin-polyfill-node')(),
+        require('@rollup/plugin-node-resolve').nodeResolve(),
+      ];
+}
+
+function createBabelPlugin(isESBuild, isRuntimeBuild, isGlobalBuild) {
+  const { getBabelOutputPlugin } = require('@rollup/plugin-babel');
+  return isRuntimeBuild
+    ? getBabelOutputPlugin({
+        allowAllFormats: isGlobalBuild,
+        presets: [['@babel/preset-env', { modules: false }]],
+        plugins: [['@babel/plugin-transform-runtime', { useESModules: isESBuild }]],
+      })
+    : getBabelOutputPlugin({
+        allowAllFormats: isGlobalBuild,
+        presets: [['@babel/preset-env', { modules: false }]],
+      });
+}
+
+function createMinifyPlugin(isESBuild) {
+  const { terser } = require('rollup-plugin-terser');
+  return terser({
+    module: isESBuild,
+    compress: {
+      ecma: 2015,
+      pure_getters: true,
+    },
+    safari10: true,
+  });
 }
