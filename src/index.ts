@@ -15,6 +15,15 @@ type SafeAny = any;
  * value: 用户自定义函数的返回值
  */
 
+import { add } from './foo';
+
+import { babel } from '@rollup/plugin-babel';
+
+const test = () => {
+  add(1, 2);
+  console.log(`hello world`, add(2, 3), babel());
+};
+
 export class PostBridge {
   // PostBridge 专属消息类型
   static messageType = 'application/x-postbridge-v1+json';
@@ -37,6 +46,7 @@ export class PostBridge {
 
   // 生成全局唯一ID
   static generateUUID() {
+    test();
     let d = new Date().getTime();
     const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
       const r = (d + Math.random() * 16) % 16 | 0;
