@@ -1,6 +1,4 @@
 /* eslint-disable @typescript-eslint/ban-types */
-type SafeAny = any;
-
 /**
  * jsbridge for iframes or windows by `window.postMessage`
  *
@@ -14,15 +12,6 @@ type SafeAny = any;
  * params: 用户自定义函数的第一个参数
  * value: 用户自定义函数的返回值
  */
-
-import { add } from './foo';
-
-import { babel } from '@rollup/plugin-babel';
-
-const test = () => {
-  add(1, 2);
-  console.log(`hello world`, add(2, 3), babel());
-};
 
 export class PostBridge {
   // PostBridge 专属消息类型
@@ -46,7 +35,6 @@ export class PostBridge {
 
   // 生成全局唯一ID
   static generateUUID() {
-    test();
     let d = new Date().getTime();
     const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
       const r = (d + Math.random() * 16) % 16 | 0;
@@ -108,11 +96,11 @@ export class PostBridge {
   }
 
   public target: Window; // PostBridge实例关联的window对象
-  public options: SafeAny; // 有两个作用，1传递origin，2作为用户自定义函数的第2个参数
+  public options: any; // 有两个作用，1传递origin，2作为用户自定义函数的第2个参数
   public messageId: number; // 每个消息的唯一ID
   public origin: string; // 当前target对应的origin，用来限制postMessage
 
-  public constructor(target: Window, options = {} as SafeAny) {
+  public constructor(target: Window, options = {} as any) {
     this.target = target;
     this.options = options;
     this.messageId = 1;
@@ -158,7 +146,7 @@ export class PostBridge {
     }
   }
 
-  call(method: string, params?: SafeAny) {
+  call(method: string, params?: any) {
     this.target.postMessage(
       {
         postbridge: 'call', // 发送消息-call
@@ -171,7 +159,7 @@ export class PostBridge {
     );
   }
 
-  request(method: string, params?: SafeAny) {
+  request(method: string, params?: any) {
     return new Promise((resolve, reject) => {
       const uid = this.generateNewMessageId();
       const sourceId = PostBridge.sourceId;
