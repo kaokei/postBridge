@@ -110,7 +110,7 @@ function createTypescriptPlugin() {
   const shouldEmitDeclarations = pkg.types && !hasTSChecked2;
   const tsPlugin = ts({
     check: !hasTSChecked2,
-    tsconfig: path.resolve(__dirname, 'tsconfig.json'),
+    tsconfig: path.resolve(__dirname, 'tsconfig.app.json'),
     cacheRoot: path.resolve(__dirname, 'node_modules/.rts2_cache'),
     tsconfigOverride: {
       compilerOptions: {
