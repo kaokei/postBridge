@@ -154,7 +154,6 @@ function createNodePlugins(isCommonJSBuild) {
 }
 
 function createBabelPlugin(isESBuild, isRuntimeBuild, isGlobalBuild) {
-  console.log('isRuntimeBuild :>> ', isRuntimeBuild);
   const { getBabelOutputPlugin } = require('@rollup/plugin-babel');
   return isRuntimeBuild
     ? getBabelOutputPlugin({
